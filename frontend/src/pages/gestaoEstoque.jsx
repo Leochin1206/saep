@@ -4,12 +4,18 @@ import { useNavigate } from 'react-router-dom';
 
 export function GestaoEstoque() {
     const navigate = useNavigate();
+    
     const [produtos, setProdutos] = useState([]);
+    const [movimentacoes, setMovimentacoes] = useState([]); // <--- NOVO ESTADO
     const [nomeUsuario, setNomeUsuario] = useState('');
+    
+    // Estados do Formulário
     const [produtoSelecionado, setProdutoSelecionado] = useState('');
     const [tipoMovimentacao, setTipoMovimentacao] = useState('entrada');
     const [quantidade, setQuantidade] = useState('');
     const [dataMovimentacao, setDataMovimentacao] = useState('');
+    
+    // Estados de Feedback
     const [mensagem, setMensagem] = useState({ tipo: '', texto: '' }); 
 
     useEffect(() => {
@@ -19,6 +25,7 @@ export function GestaoEstoque() {
             setNomeUsuario(usuario.nome);
         }
         carregarProdutos();
+        carregarMovimentacoes(); // <--- CARREGA O HISTÓRICO AO ABRIR
     }, []);
 
     const ordenarProdutos = (lista) => {
@@ -35,11 +42,25 @@ export function GestaoEstoque() {
             const response = await axios.get('http://127.0.0.1:8000/api/produtos/', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-
             const produtosOrdenados = ordenarProdutos(response.data);
             setProdutos(produtosOrdenados);
         } catch (error) {
             console.error("Erro ao carregar produtos", error);
+        }
+    };
+
+    // <--- NOVA FUNÇÃO PARA BUSCAR HISTÓRICO
+    const carregarMovimentacoes = async () => {
+        try {
+            const token = localStorage.getItem('token_saep');
+            const response = await axios.get('http://127.0.0.1:8000/api/movimentacoes/', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            // Ordena por data (mais recente primeiro) se quiser, ou deixa padrão
+            // Aqui inverte para mostrar a última em cima
+            setMovimentacoes(response.data.reverse()); 
+        } catch (error) {
+            console.error("Erro ao carregar movimentações", error);
         }
     };
 
@@ -68,16 +89,21 @@ export function GestaoEstoque() {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
-            const response = await axios.get('http://127.0.0.1:8000/api/produtos/', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const produtosAtualizados = ordenarProdutos(response.data);
-            setProdutos(produtosAtualizados);
+            // Recarrega produtos e movimentações
+            carregarProdutos();
+            carregarMovimentacoes(); // <--- ATUALIZA A TABELA DE HISTÓRICO NA HORA
+
             setQuantidade('');
             setDataMovimentacao('');
             
+            // Lógica do Alerta (Mantida)
             if (tipoMovimentacao === 'saida') {
-                const produtoAfetado = produtosAtualizados.find(p => p.id === parseInt(produtoSelecionado));
+                // Precisamos buscar a lista atualizada para checar o estoque real pós-movimentação
+                const responseProd = await axios.get('http://127.0.0.1:8000/api/produtos/', {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                const produtosAtuais = responseProd.data;
+                const produtoAfetado = produtosAtuais.find(p => p.id === parseInt(produtoSelecionado));
                 
                 if (produtoAfetado && produtoAfetado.quantidade < produtoAfetado.quantidade_minima) {
                     setMensagem({ 
@@ -106,6 +132,13 @@ export function GestaoEstoque() {
         navigate('/');
     };
 
+    // Função auxiliar para formatar data (YYYY-MM-DD -> DD/MM/YYYY)
+    const formatarData = (dataISO) => {
+        if (!dataISO) return '-';
+        const data = new Date(dataISO);
+        return data.toLocaleDateString('pt-BR');
+    };
+
     return (
         <div className="min-h-screen bg-gray-50">
             <nav className="bg-green-600 shadow-lg">
@@ -127,6 +160,7 @@ export function GestaoEstoque() {
             <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
                 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Coluna da Esquerda: Formulário */}
                     <div className="lg:col-span-1">
                         <div className="bg-white shadow rounded-lg p-6 sticky top-6">
                             <div className="flex items-center justify-between mb-4">
@@ -213,7 +247,10 @@ export function GestaoEstoque() {
                         </div>
                     </div>
 
-                    <div className="lg:col-span-2">
+                    {/* Coluna da Direita: Tabelas */}
+                    <div className="lg:col-span-2 space-y-8"> {/* space-y-8 separa as duas tabelas */}
+                        
+                        {/* TABELA 1: Situação Atual (Requisito da Prova) */}
                         <div className="bg-white shadow rounded-lg overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
                                 <h3 className="text-lg font-medium text-gray-900">Situação Atual do Estoque</h3>
@@ -252,6 +289,49 @@ export function GestaoEstoque() {
                                 </table>
                             </div>
                         </div>
+
+                        {/* TABELA 2: Histórico de Movimentações (Novo) */}
+                        <div className="bg-white shadow rounded-lg overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                                <h3 className="text-lg font-medium text-gray-900">Histórico de Movimentações</h3>
+                                <p className="text-sm text-gray-500">Registro completo de entradas e saídas</p>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Produto</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantidade</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuário</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {movimentacoes.length === 0 ? (
+                                             <tr><td colSpan="5" className="px-6 py-4 text-center text-gray-500">Nenhuma movimentação registrada.</td></tr>
+                                        ) : (
+                                            movimentacoes.map((mov) => (
+                                                <tr key={mov.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatarData(mov.data_movimentacao)}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{mov.nome_produto}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                                            mov.tipo === 'entrada' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                                                        }`}>
+                                                            {mov.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{mov.quantidade}</td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{mov.nome_usuario}</td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </main>
